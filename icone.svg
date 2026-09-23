@@ -1,0 +1,27 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <rect width="512" height="512" rx="110" fill="#0f1115"/>
+  <!-- Livro aberto: cada página é um dos registos da app — treino, comida, ciclo — -->
+  <!-- lombada ao centro, as duas folhas a abrir para os lados. -->
+  <path d="M256 168
+           C 214 146 158 138 118 146
+           C 110 148 104 155 104 163
+           L 104 344
+           C 104 353 112 359 121 357
+           C 160 349 213 356 252 378
+           C 254 379 256 379 256 376 Z"
+        fill="#212530"/>
+  <path d="M256 168
+           C 298 146 354 138 394 146
+           C 402 148 408 155 408 163
+           L 408 344
+           C 408 353 400 359 391 357
+           C 352 349 299 356 260 378
+           C 258 379 256 379 256 376 Z"
+        fill="#262b38"/>
+  <path d="M256 168 L256 376" stroke="#0f1115" stroke-width="6"/>
+  <!-- A marca — um traço a crescer, o registo diário a acumular-se. -->
+  <path d="M150 230 L192 230 L212 200 L232 260 L252 216"
+        fill="none" stroke="#4f9dff" stroke-width="14"
+        stroke-linecap="round" stroke-linejoin="round"/>
+  <circle cx="252" cy="216" r="9" fill="#4f9dff"/>
+</svg>

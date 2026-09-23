@@ -1,0 +1,10 @@
+{
+  "name": "diario",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Diário de treino, peso, calorias e ciclo.",
+  "scripts": {
+    "start": "node servidor.js"
+  }
+}
