@@ -2,7 +2,7 @@ import { PLANO, TIPO_INFO, RITMOS } from '../data/plano.js';
 import { balancoHTML, balancoTexto } from './balanco.js';
 import { faseDe } from '../ciclo.js';
 import {
-  obter, registarTreino, isoData, diaCurto, dataLegivel,
+  obter, registarTreino, isoData, diaCurto, dataLegivel, formatarTempo,
   dataEfectiva, moverSessao, reporSemana, definirModoRitmo,
   editarSessao, reporConteudo, editarExtra, criarSessao, apagarSessao,
 } from '../store.js';
@@ -13,9 +13,21 @@ const PROVA_2 = '2026-12-13';
 // o tempo: bater o da primeira, nem que seja por pouco.
 const MELHORIA = { min: 2, max: 3 };
 const DUROS = ['ergo', 'intervalos', 'longa', 'prova'];
+function tempoParaMinutos(valor) {
+  const texto = String(valor ?? '').trim().replace(',', '.');
+  if (!texto) return null;
+  if (texto.includes(':')) {
+    const [minutos, segundos] = texto.split(':').map(Number);
+    if (!Number.isFinite(minutos) || !Number.isFinite(segundos) || segundos < 0 || segundos >= 60) return null;
+    return minutos + segundos / 60;
+  }
+  const minutos = Number(texto);
+  return Number.isFinite(minutos) && minutos >= 0 ? minutos : null;
+}
 
 /** Os tipos que ela pode escolher ao editar. A prova não está aqui de propósito. */
 const TIPOS_EDITAVEIS = ['pt', 'facil', 'ergo', 'intervalos', 'longa', 'descanso'];
+let semanaVista = null;
 
 const somaDias = (iso, n) => {
   const d = new Date(iso + 'T12:00:00');
@@ -126,18 +138,18 @@ function resumoPT({ meses, pacote }) {
       <h4>Treinos de PT</h4>
       <div class="linhas-pt">
         ${meses.map((m) => {
-          const estado = !m.completo
-            ? '<span class="parcial">o plano só cobre parte do mês</span>'
-            : m.desvio === 0
-              ? '<span class="certo">certo</span>'
-              : `<span class="fora">${m.desvio > 0 ? '+' : ''}${m.desvio}</span>`;
-          return `
+    const estado = !m.completo
+      ? '<span class="parcial">o plano só cobre parte do mês</span>'
+      : m.desvio === 0
+        ? '<span class="certo">certo</span>'
+        : `<span class="fora">${m.desvio > 0 ? '+' : ''}${m.desvio}</span>`;
+    return `
             <div class="linha-pt">
               <span class="mes">${nomeMes(m.mes)}</span>
               <span class="n">${m.total} ${m.total === 1 ? 'treino' : 'treinos'}</span>
               ${estado}
             </div>`;
-        }).join('')}
+  }).join('')}
       </div>
       <p class="legenda">Pacote de ${pacote} por mês. Muda-o nas definições, com os que já tinhas feito antes de o plano começar.</p>
     </div>
@@ -148,11 +160,22 @@ export function renderTreinos(raiz) {
   const estado = obter();
   const hoje = isoData();
   const pt = contagemPT();
+  const semanaActual = PLANO.find((s) => fimDaSemana(s) >= hoje) || PLANO[PLANO.length - 1];
+  const semanaSelecionada = PLANO.find((s) => s.semana === semanaVista) || semanaActual;
+  const indiceSemana = PLANO.findIndex((s) => s.semana === semanaSelecionada.semana);
 
   raiz.innerHTML = `
     ${cabecalho(hoje)}
     ${selectorModo()}
-    <div id="lista-semanas">${PLANO.map((s) => semanaHTML(s, estado, hoje, pt.mapa)).join('')}</div>
+    <div class="nav-semana nav-semana-treinos">
+      <button type="button" id="semana-anterior" aria-label="Semana anterior" ${indiceSemana === 0 ? 'disabled' : ''}>‹</button>
+      <div>
+        <strong>Semana ${semanaSelecionada.semana}</strong><br>
+        <span class="legenda">${semanaSelecionada.titulo}</span>
+      </div>
+      <button type="button" id="semana-seguinte" aria-label="Semana seguinte" ${indiceSemana === PLANO.length - 1 ? 'disabled' : ''}>›</button>
+    </div>
+    ${semanaHTML(semanaSelecionada, estado, hoje, pt.mapa)}
     ${resumoPT(pt)}
     ${tabelaRitmos()}
   `;
@@ -175,6 +198,15 @@ export function renderTreinos(raiz) {
   raiz.querySelectorAll('[data-sessao]').forEach((el) => {
     el.addEventListener('click', () => abrirRegisto(el.dataset.sessao, () => renderTreinos(raiz)));
   });
+
+  const mudarSemana = (delta) => {
+    const nova = PLANO[indiceSemana + delta];
+    if (!nova) return;
+    semanaVista = nova.semana;
+    renderTreinos(raiz);
+  };
+  raiz.querySelector('#semana-anterior').onclick = () => mudarSemana(-1);
+  raiz.querySelector('#semana-seguinte').onclick = () => mudarSemana(1);
 
   raiz.querySelectorAll('[data-mover]').forEach((el) => {
     el.addEventListener('click', (ev) => {
@@ -225,14 +257,6 @@ export function renderTreinos(raiz) {
     });
   });
 
-  // Abre a semana actual e fecha as outras
-  const semanaActual = PLANO.find((s) => fimDaSemana(s) >= hoje) || PLANO[PLANO.length - 1];
-  PLANO.forEach((s) => {
-    if (s.semana !== semanaActual.semana) {
-      raiz.querySelector(`#semana-${s.semana}`)?.classList.add('fechada');
-      raiz.querySelector(`[data-abrir="${s.semana}"]`)?.classList.add('fechada');
-    }
-  });
 }
 
 function cabecalho(hoje) {
@@ -284,8 +308,10 @@ function objectivoProva2(prova1) {
     <div class="objectivo-2">
       <strong>Objectivo a 13 de Dezembro</strong>
       <p class="alvo">${rapido} a ${lento} min</p>
+        <p class="alvo">${formatarTempo(rapido)} a ${formatarTempo(lento)}</p>
       <p>
         Menos ${MELHORIA.min} a ${MELHORIA.max} min do que os ${t} de 8 de Novembro.
+          Menos ${MELHORIA.min} a ${MELHORIA.max} min do que os ${formatarTempo(t)} de 8 de Novembro.
         Dá ${ritmoPorKm(lento, km)} a ${ritmoPorKm(rapido, km)}, contra os ${ritmoPorKm(t, km)} que fizeste.
       </p>
     </div>`;
@@ -441,13 +467,14 @@ function sessaoHTML(sessao, estado, hoje, semana, pt) {
           ${sessao.extra ? '<span class="etiqueta-movida">acrescentada</span>' : ''}
           ${sessao.editada ? '<span class="etiqueta-movida">alterada</span>' : ''}
           ${etiquetaFase(sessao)}
-          ${movivel ? `
-            <span class="acoes-sessao">
+          <span class="acoes-sessao">
+            ${movivel ? `
               <button type="button" class="mover" data-editar="${sessao.id}" data-semana="${semana}"
                 aria-label="Editar sessão" title="Editar sessão">✎</button>
               <button type="button" class="mover" data-mover="${sessao.id}" data-semana="${semana}"
                 aria-label="Trocar de dia" title="Trocar de dia">⇄</button>
-            </span>` : ''}
+            ` : ''}
+          </span>
         </div>
         <h4>${escapar(sessao.titulo)}${contagem ? ` <span class="contagem-pt">treino ${contagem.n} de ${contagem.total}</span>` : ''}</h4>
         ${sessao.detalhe ? `<p class="detalhe">${escapar(sessao.detalhe)}</p>` : ''}
@@ -469,7 +496,7 @@ function etiquetaFase(sessao) {
 function resumoRegisto(reg) {
   const partes = [];
   if (reg.distanciaKm) partes.push(`${reg.distanciaKm} km`);
-  if (reg.tempoMin) partes.push(`${reg.tempoMin} min`);
+  if (reg.tempoMin) partes.push(`${formatarTempo(reg.tempoMin)}`);
   if (reg.distanciaKm && reg.tempoMin) {
     const seg = (reg.tempoMin * 60) / reg.distanciaKm;
     partes.push(`${Math.floor(seg / 60)}:${String(Math.round(seg % 60)).padStart(2, '0')}/km`);
@@ -564,8 +591,8 @@ function abrirTroca(id, numSemana, raiz) {
       <h4 class="sec">Trocar com</h4>
       <div class="resultados">
         ${outras.map((alvo) => {
-          const aviso = avisoDaTroca(sessao, alvo);
-          return `
+    const aviso = avisoDaTroca(sessao, alvo);
+    return `
             <button type="button" class="opcao" data-troca="${alvo.id}">
               <span>
                 <strong>${diaCurto(alvo.data)} ${Number(alvo.data.slice(8))}</strong>
@@ -574,7 +601,7 @@ function abrirTroca(id, numSemana, raiz) {
               </span>
               <span class="seta">⇄</span>
             </button>`;
-        }).join('')}
+  }).join('')}
       </div>
       <div class="botoes um">
         <button value="cancelar" class="secundario" formnovalidate>Cancelar</button>
@@ -650,7 +677,7 @@ function abrirEdicao(id, numSemana, raiz) {
       </label>
 
       <label>Distância prevista (km)
-        <input type="number" name="distanciaKm" step="0.1" inputmode="decimal" value="${v.distanciaKm ?? ''}">
+        <input type="number" name="distanciaKm" step="0.01" inputmode="decimal" value="${v.distanciaKm ?? ''}">
       </label>
 
       ${!nova ? `
@@ -743,11 +770,12 @@ export function abrirRegisto(id, aoFechar) {
       ${corrida ? `
         <div class="par">
           <label>Distância (km)
-            <input type="number" name="distanciaKm" step="0.1" inputmode="decimal"
+            <input type="number" name="distanciaKm" step="0.01" inputmode="decimal"
               value="${reg.distanciaKm ?? sessao.distanciaKm ?? ''}">
           </label>
-          <label>Tempo (min)
-            <input type="number" name="tempoMin" step="1" inputmode="numeric" value="${reg.tempoMin ?? ''}">
+          <label>Tempo (min:seg)
+            <input type="text" name="tempoMin" inputmode="numeric" placeholder="ex.: 32:45"
+              value="${reg.tempoMin ? formatarTempo(reg.tempoMin) : ''}">
           </label>
         </div>
       ` : ''}
@@ -789,7 +817,7 @@ export function abrirRegisto(id, aoFechar) {
       registarTreino(id, {
         feito: f.get('feito') === 'on',
         distanciaKm: f.get('distanciaKm') ? Number(f.get('distanciaKm')) : null,
-        tempoMin: f.get('tempoMin') ? Number(f.get('tempoMin')) : null,
+        tempoMin: tempoParaMinutos(f.get('tempoMin')),
         esforco: f.get('esforco') ? Number(f.get('esforco')) : null,
         dorCanela: f.get('dorCanela') === 'on',
         notas: (f.get('notas') || '').trim(),

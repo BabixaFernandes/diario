@@ -2,7 +2,10 @@
 // do próprio plano aplicadas aos registos dela. O que a app não conseguir dizer,
 // o botão de copiar manda para uma conversa a sério.
 
-import { obter, mediaSemanal, totaisDoDia, somaDias, diaCurto, dataLegivel, soPlano } from '../store.js';
+import {
+  obter, mediaSemanal, totaisDoDia, somaDias, diaCurto, dataLegivel, soPlano, formatarTempo,
+  suplementosDoDia,
+} from '../store.js';
 import { faseDe, sintomasFortes } from '../ciclo.js';
 
 const NOME_SINTOMA = { dores: 'dores', cansaco: 'cansaço', fluxo: 'fluxo' };
@@ -94,13 +97,24 @@ export function calcularBalanco(semana, sessoes, fim, hoje) {
     secos: aguaDias.filter((d) => comTreino(d) && e.agua[d] < alvoDia(d) * AGUA_BAIXA),
   };
 
+  const suplementosDias = dias.filter((d) => Object.keys(e.suplementos[d] || {}).length);
+  const suplementos = {
+    dias: suplementosDias.length,
+    deDias: dias.length,
+    tomados: suplementosDoDia().map((nome) => ({
+      nome,
+      dias: dias.filter((d) => e.suplementos[d]?.[nome]).length,
+    })),
+  };
+
   // As fases por que a semana passou, e os dias que ela marcou como fortes.
   const fases = [...new Set(dias.map((d) => faseDe(d)?.label).filter(Boolean))];
   const fortes = sintomasFortes(semana.inicio, ate);
 
   return {
     semana, fim, hoje, emCurso, treinaveis, feitas, faltaram, canela,
-    longa, longaReg, ritmoFacil, peso, pesoAnterior, comida, agua, fases, fortes, alvos: e.alvos,
+    longa, longaReg, ritmoFacil, peso, pesoAnterior, comida, agua, suplementos,
+    fases, fortes, alvos: e.alvos,
   };
 }
 
@@ -201,7 +215,7 @@ function linhaLonga(b) {
   }
   const p = [];
   if (b.longaReg.distanciaKm) p.push(`${num(b.longaReg.distanciaKm)} km`);
-  if (b.longaReg.tempoMin) p.push(`${b.longaReg.tempoMin} min`);
+  if (b.longaReg.tempoMin) p.push(formatarTempo(b.longaReg.tempoMin));
   if (b.longaReg.distanciaKm && b.longaReg.tempoMin) {
     p.push(ritmo((b.longaReg.tempoMin * 60) / b.longaReg.distanciaKm));
   }
@@ -229,9 +243,9 @@ function linhaComida(b) {
 const linhas = (b) => [
   ['Sessões', b.treinaveis.length
     ? `${b.feitas.length} de ${b.treinaveis.length}${b.emCurso ? ' até hoje' : ''}`
-      + (b.faltaram.length
-        ? ` — faltou ${b.faltaram.map((s) => `${diaCurto(s.data)} ${Number(s.data.slice(8))}`).join(', ')}`
-        : '')
+    + (b.faltaram.length
+      ? ` — faltou ${b.faltaram.map((s) => `${diaCurto(s.data)} ${Number(s.data.slice(8))}`).join(', ')}`
+      : '')
     : 'a semana ainda não começou a contar'],
   ['A longa', linhaLonga(b)],
   ['Ritmo fácil', b.ritmoFacil ? ritmo(b.ritmoFacil) : 'sem distância e tempo registados'],
@@ -239,6 +253,7 @@ const linhas = (b) => [
   ['Peso', linhaPeso(b)],
   ['Comida', linhaComida(b)],
   ['Água', linhaAgua(b)],
+  ['Suplementos', linhaSuplementos(b)],
   ['Ciclo', linhaCiclo(b)],
 ].filter(([, v]) => v !== null);
 
@@ -247,6 +262,13 @@ function linhaAgua(b) {
   const base = `média ${litros(b.agua.media)} · ${b.agua.dias} de ${b.agua.deDias} dias registados`;
   if (!b.agua.secos.length) return base;
   return `${base} · ${b.agua.secos.length} ${b.agua.secos.length === 1 ? 'dia' : 'dias'} de treino com pouca`;
+}
+
+function linhaSuplementos(b) {
+  if (!b.suplementos.dias) return 'nenhum dia registado';
+  return b.suplementos.tomados
+    .map((x) => `${x.nome} ${x.dias}/${b.suplementos.deDias}`)
+    .join(' · ');
 }
 
 function linhaCiclo(b) {
@@ -298,7 +320,7 @@ export function balancoTexto(semana, sessoes, fim, hoje) {
       else if (s.tipo === 'descanso') { /* nada a dizer */ }
       else det.push(s.data > hoje ? 'ainda por fazer' : 'não feita');
       if (r.distanciaKm) det.push(`${num(r.distanciaKm)} km`);
-      if (r.tempoMin) det.push(`${r.tempoMin} min`);
+      if (r.tempoMin) det.push(formatarTempo(r.tempoMin));
       if (r.distanciaKm && r.tempoMin) det.push(ritmo((r.tempoMin * 60) / r.distanciaKm));
       if (r.esforco) det.push(`esforço ${r.esforco}/5`);
       if (r.dorCanela) det.push('DOR NA CANELA');
@@ -307,7 +329,7 @@ export function balancoTexto(semana, sessoes, fim, hoje) {
     }),
     '',
     `Alvos: ${alvos.kcal} kcal, ${alvos.proteina} g de proteína, ritmo fácil 8:15-8:45/km, `
-      + `água ${litros(alvos.aguaMl || 0)} (${litros((alvos.aguaMl || 0) + (alvos.aguaExtraTreino || 0))} nos dias de treino).`,
+    + `água ${litros(alvos.aguaMl || 0)} (${litros((alvos.aguaMl || 0) + (alvos.aguaExtraTreino || 0))} nos dias de treino).`,
     b.emCurso
       ? 'Diz-me o que ler nisto e o que ajustar no resto da semana.'
       : 'Diz-me o que ler nisto e o que mudar na próxima semana.',

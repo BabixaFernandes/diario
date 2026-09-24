@@ -3,7 +3,7 @@
 // bem a "o que faço hoje"; isto responde a "como é que este mês está".
 
 import { PLANO, TIPO_INFO } from '../data/plano.js';
-import { obter, registarPeso, totaisDoDia, isoData, somaDias, dataLegivel } from '../store.js';
+import { obter, registarPeso, totaisDoDia, isoData, somaDias, dataLegivel, formatarTempo } from '../store.js';
 import { faseDe } from '../ciclo.js';
 import { todasAsSessoes, abrirRegisto } from './treinos.js';
 
@@ -78,7 +78,7 @@ export function renderCalendario(raiz) {
       </div>
     </div>
 
-    ${resumoMes(mesVisivel, sessoes, estado)}
+    ${evolucaoMes(mesVisivel, sessoes, estado)}
 
     <div class="cartao">
       <h4>O que significam as marcas</h4>
@@ -144,36 +144,87 @@ function celula(data, mes, hoje, sessoes, estado) {
       </span>
       <span class="pontos">
         ${treinaveis.slice(0, 3).map((s) => {
-          const feito = estado.treinos[s.id]?.feito;
-          return `<i class="ponto cor-${TIPO_INFO[s.tipo].cor}${feito ? ' feito' : ''}">${feito ? '✓' : ''}</i>`;
-        }).join('')}
+    const feito = estado.treinos[s.id]?.feito;
+    return `<i class="ponto cor-${TIPO_INFO[s.tipo].cor}${feito ? ' feito' : ''}">${feito ? '✓' : ''}</i>`;
+  }).join('')}
         ${dor ? '<i class="sinal-dor">⚠</i>' : ''}
       </span>
     </button>
   `;
 }
 
-function resumoMes(mes, sessoes, estado) {
-  const doMes = sessoes.filter((s) => mesDe(s.data) === mes && s.tipo !== 'descanso');
-  if (!doMes.length) return '';
-  const feitas = doMes.filter((s) => estado.treinos[s.id]?.feito);
-  const km = feitas.reduce((a, s) => a + (estado.treinos[s.id]?.distanciaKm || 0), 0);
-  const dores = doMes.filter((s) => estado.treinos[s.id]?.dorCanela).length;
-  const pesagens = Object.keys(estado.pesos).filter((d) => mesDe(d) === mes).length;
-  const comidas = Object.keys(estado.diario).filter((d) => mesDe(d) === mes && estado.diario[d].length).length;
+function evolucaoMes(mes, sessoes, estado) {
+  const semanas = semanasDoMes(mes).map((dias) => dias.filter((d) => mesDe(d) === mes));
+  const kmMes = sessoes
+    .filter((s) => mesDe(s.data) === mes && estado.treinos[s.id]?.feito)
+    .reduce((total, s) => total + (Number(estado.treinos[s.id]?.distanciaKm) || 0), 0);
+  const linhas = semanas.map((dias) => {
+    const treinaveis = sessoes.filter((s) => dias.includes(s.data) && s.tipo !== 'descanso');
+    const feitas = treinaveis.filter((s) => estado.treinos[s.id]?.feito).length;
+    const km = treinaveis
+      .reduce((total, s) => total + (Number(estado.treinos[s.id]?.feito ? estado.treinos[s.id]?.distanciaKm : 0) || 0), 0);
+    const pesos = dias.filter((d) => typeof estado.pesos[d] === 'number').map((d) => estado.pesos[d]);
+    const comidas = dias.filter((d) => (estado.diario[d] || []).length).length;
+    const aguas = dias.filter((d) => estado.agua[d] !== undefined).length;
+    const suplementos = dias.filter((d) => Object.keys(estado.suplementos[d] || {}).length).length;
+    const inicio = Number(dias[0].slice(8));
+    const fim = Number(dias[dias.length - 1].slice(8));
+    const peso = pesos.length ? `${(pesos.reduce((a, b) => a + b, 0) / pesos.length).toFixed(1).replace('.', ',')} kg` : '—';
+
+    return `
+      <div class="evolucao-linha">
+        <strong> ${inicio}–${fim}</strong>
+        <span><b>Treinos</b> ${feitas}/${treinaveis.length || '—'}</span>
+        <span><b>Km</b> ${km ? `${km.toFixed(1).replace('.', ',')}` : '—'}</span>
+        <span><b>Peso</b> ${peso}</span>
+        <span><b>Comida</b> ${comidas}/${dias.length}</span>
+        <span><b>Água</b> ${aguas}/${dias.length}</span>
+        <span><b>Supl.</b> ${suplementos}/${dias.length}</span>
+      </div>`;
+  }).join('');
+  const feedback = feedbackEvolucao(mes, sessoes, estado);
 
   return `
-    <div class="cartao">
-      <h4>${MESES[Number(mes.slice(5, 7)) - 1]} em números</h4>
-      <div class="linhas-pt">
-        <div class="linha-pt"><span class="mes">Sessões feitas</span><span class="n">${feitas.length} de ${doMes.length}</span></div>
-        <div class="linha-pt"><span class="mes">Quilómetros corridos</span><span class="n">${km ? km.toFixed(1).replace('.', ',') : '—'}</span></div>
-        <div class="linha-pt"><span class="mes">Dias com pesagem</span><span class="n">${pesagens}</span></div>
-        <div class="linha-pt"><span class="mes">Dias com comida registada</span><span class="n">${comidas}</span></div>
-        ${dores ? `<div class="linha-pt"><span class="mes">Sessões com dor na canela</span><span class="fora">${dores}</span></div>` : ''}
-      </div>
-    </div>
-  `;
+    <details class="ritmos evolucao">
+      <summary>Evolução por semana · ${kmMes ? `${kmMes.toFixed(1).replace('.', ',')} km no mês` : 'sem km registados'}</summary>
+      <p class="legenda">Comparação rápida dos registos deste mês. “—” significa que ainda não há dados.</p>
+      <div class="evolucao-linhas">${linhas}</div>
+      <p class="evolucao-feedback"><strong>Leitura rápida</strong> ${feedback}</p>
+    </details>`;
+}
+
+function feedbackEvolucao(mes, sessoes, estado) {
+  const hoje = isoData();
+  const diasObservados = semanasDoMes(mes).flat().filter((d) => mesDe(d) === mes && d <= hoje);
+  if (!diasObservados.length) return 'Ainda não há dias observados neste mês.';
+
+  const treinaveis = sessoes.filter((s) => s.data <= hoje && s.data >= diasObservados[0]
+    && s.data <= diasObservados[diasObservados.length - 1] && s.tipo !== 'descanso');
+  const feitas = treinaveis.filter((s) => estado.treinos[s.id]?.feito).length;
+  const pesos = diasObservados
+    .filter((d) => typeof estado.pesos[d] === 'number')
+    .map((d) => ({ data: d, valor: estado.pesos[d] }));
+  const mensagens = [];
+
+  if (treinaveis.length) {
+    const percentagem = Math.round((feitas / treinaveis.length) * 100);
+    mensagens.push(percentagem >= 80
+      ? `Boa consistência nos treinos: ${feitas} de ${treinaveis.length} feitos.`
+      : `${feitas} de ${treinaveis.length} treinos feitos até agora.`);
+  }
+  if (pesos.length >= 2) {
+    const delta = pesos[pesos.length - 1].valor - pesos[0].valor;
+    mensagens.push(Math.abs(delta) < 0.2
+      ? 'O peso manteve-se estável neste período.'
+      : `O peso ${delta < 0 ? 'desceu' : 'subiu'} ${Math.abs(delta).toFixed(1).replace('.', ',')} kg.`);
+  }
+  if (!mensagens.length) {
+    const registos = diasObservados.filter((d) => (estado.diario[d] || []).length
+      || estado.agua[d] !== undefined
+      || Object.keys(estado.suplementos[d] || {}).length).length;
+    return registos ? 'Já há alguns registos, mas ainda é cedo para tirar conclusões.' : 'Ainda há poucos registos para encontrar uma tendência.';
+  }
+  return mensagens.join(' ');
 }
 
 function abrirDia(data, raiz) {
@@ -196,13 +247,13 @@ function abrirDia(data, raiz) {
       ${sessoes.length ? `
         <h4 class="sec">Sessões</h4>
         ${sessoes.map((s) => {
-          const r = estado.treinos[s.id] || {};
-          const partes = [];
-          if (r.distanciaKm) partes.push(`${r.distanciaKm} km`);
-          if (r.tempoMin) partes.push(`${r.tempoMin} min`);
-          if (r.distanciaKm && r.tempoMin) partes.push(ritmo(r.distanciaKm, r.tempoMin));
-          if (r.esforco) partes.push(`esforço ${r.esforco}/5`);
-          return `
+    const r = estado.treinos[s.id] || {};
+    const partes = [];
+    if (r.distanciaKm) partes.push(`${r.distanciaKm} km`);
+    if (r.tempoMin) partes.push(formatarTempo(r.tempoMin));
+    if (r.distanciaKm && r.tempoMin) partes.push(ritmo(r.distanciaKm, r.tempoMin));
+    if (r.esforco) partes.push(`esforço ${r.esforco}/5`);
+    return `
             <button type="button" class="opcao" ${s.tipo === 'descanso' ? 'disabled' : `data-sessao="${s.id}"`}>
               <span>
                 <strong>${TIPO_INFO[s.tipo].label}</strong> — ${s.titulo}
@@ -211,7 +262,7 @@ function abrirDia(data, raiz) {
               </span>
               ${s.tipo === 'descanso' ? '' : '<span class="seta">›</span>'}
             </button>`;
-        }).join('')}
+  }).join('')}
       ` : '<p class="legenda">Sem sessões marcadas neste dia.</p>'}
 
       <h4 class="sec">Peso</h4>
@@ -223,16 +274,16 @@ function abrirDia(data, raiz) {
       <h4 class="sec">Comida</h4>
       <p class="legenda">
         ${temComida
-          ? `${Math.round(t.kcal)} kcal · proteína ${Math.round(t.p)} g · de um alvo de ${estado.alvos.kcal} kcal e ${estado.alvos.proteina} g`
-          : 'Nada registado. O diário abre-se no separador Comida.'}
+      ? `${Math.round(t.kcal)} kcal · proteína ${Math.round(t.p)} g · de um alvo de ${estado.alvos.kcal} kcal e ${estado.alvos.proteina} g`
+      : 'Nada registado. O diário abre-se no separador Comida.'}
       </p>
 
       ${sint ? `
         <h4 class="sec">Ciclo</h4>
         <p class="legenda">
           ${Object.entries(sint).filter(([, v]) => v > 0)
-            .map(([k, v]) => `${{ dores: 'dores', cansaco: 'cansaço', fluxo: 'fluxo' }[k]} ${v === 2 ? 'fortes' : 'leves'}`)
-            .join(' · ') || 'sem sintomas registados'}
+        .map(([k, v]) => `${{ dores: 'dores', cansaco: 'cansaço', fluxo: 'fluxo' }[k]} ${v === 2 ? 'fortes' : 'leves'}`)
+        .join(' · ') || 'sem sintomas registados'}
           — muda-se no separador Ciclo.
         </p>` : ''}
 

@@ -33,7 +33,11 @@ const diasEntre = (a, b) => Math.round((new Date(b) - new Date(a)) / 86400000);
  *  literatura aponta, por isso só se usa o valor padrão sem histórico. */
 export function duracaoMedia() {
   const { ciclos } = obter();
-  if (ciclos.length < 2) return { dias: CICLO_PADRAO, estimada: true, n: 0, irregular: false };
+  // Um único intervalo pode ser um ciclo atípico. Só personalizamos a
+  // previsão depois de existirem dois intervalos completos (três inícios).
+  if (ciclos.length < CICLOS_PARA_PADRAO + 1) {
+    return { dias: CICLO_PADRAO, estimada: true, n: 0, irregular: false };
+  }
   const intervalos = ciclos.slice(1).map((c, i) => diasEntre(ciclos[i].inicio, c.inicio));
   const media = intervalos.reduce((a, b) => a + b, 0) / intervalos.length;
   const min = Math.min(...intervalos);
@@ -110,9 +114,10 @@ export function faseDe(data, projectar = false) {
   let dia = diasEntre(inicio, data) + 1;
   let projectada = false;
 
-  if (dia > duracao + 14) {
+  if (dia > duracao) {
     if (!projectar) return null;
-    // Para o futuro não há duração conhecida: projecta-se com a média.
+    // Chegámos ao ciclo seguinte: não se pode classificar o dia 29 como lútea
+    // do ciclo anterior. Para o futuro usa-se a duração média disponível.
     duracao = duracaoMedia().dias;
     inicio = somaDias(inicio, Math.floor((dia - 1) / duracao) * duracao);
     dia = diasEntre(inicio, data) + 1;

@@ -5,6 +5,7 @@
   "type": "module",
   "description": "Diário de treino, peso, calorias e ciclo.",
   "scripts": {
-    "start": "node servidor.js"
+    "start": "node servidor.js",
+    "test": "node --test tests/*.test.js"
   }
 }

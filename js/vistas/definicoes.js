@@ -1,4 +1,7 @@
-import { obter, guardarAlvos, calcularAlvos, apagarAlimento, VERSAO_APP } from '../store.js';
+import {
+  obter, guardarAlvos, adiarConfiguracaoInicial, calcularAlvos,
+  actualizarAlimento, apagarAlimento, VERSAO_APP,
+} from '../store.js';
 import { comUnidade } from '../data/alimentos.js';
 import { PLANO } from '../data/plano.js';
 
@@ -31,8 +34,79 @@ function listaAlimentos() {
           ${a.porcao?.g ? ` · 1 ${esc(a.porcao.nome)} = ${comUnidade(a, a.porcao.g)}` : ''}
         </span>
       </div>
+      <button type="button" class="mover" data-editar-alimento="${a.id}"
+        aria-label="Editar ${esc(a.nome)}" title="Editar alimento">✎</button>
       <button type="button" class="apagar" data-apagar="${a.id}" aria-label="Apagar ${esc(a.nome)}">×</button>
     </div>`).join('');
+}
+
+const CATEGORIAS = ['Carne e peixe', 'Ovos e lacticínios', 'Hidratos', 'Fruta e legumes', 'Gorduras e extras', 'Outros'];
+
+function abrirEdicaoAlimento(id, aoGuardar) {
+  const alimento = obter().alimentos.find((a) => a.id === id);
+  if (!alimento) return;
+  const dialogo = document.createElement('dialog');
+  dialogo.className = 'modal';
+  dialogo.innerHTML = `
+    <form method="dialog">
+      <h3>Editar alimento</h3>
+      <label>Nome<input name="nome" required value="${esc(alimento.nome)}"></label>
+      <div class="par">
+        <label>Calorias<input type="number" name="kcal" step="1" required value="${alimento.kcal}"></label>
+        <label>Proteína (g)<input type="number" name="p" step="0.1" required value="${alimento.p}"></label>
+      </div>
+      <div class="par">
+        <label>Hidratos (g)<input type="number" name="h" step="0.1" value="${alimento.h}"></label>
+        <label>Gordura (g)<input type="number" name="g" step="0.1" value="${alimento.g}"></label>
+      </div>
+      <label>Categoria
+        <select name="cat">
+          ${CATEGORIAS.map((c) => `<option ${c === alimento.cat ? 'selected' : ''}>${c}</option>`).join('')}
+        </select>
+      </label>
+      <label class="caixa-linha">
+        <input type="checkbox" name="liquido" ${alimento.liquido ? 'checked' : ''}>
+        É líquido — mede-se em ml
+      </label>
+      <label>Factor cru (opcional)
+        <input type="number" name="factorCru" step="0.01" min="0.01" inputmode="decimal"
+          value="${alimento.factorCru ?? ''}" placeholder="ex.: 1,35">
+      </label>
+      <div class="par">
+        <label>Como se conta<input name="porcaoNome" value="${esc(alimento.porcao?.nome || '')}"></label>
+        <label>Quantos gramas tem<input type="number" name="porcaoG" step="1"
+          value="${alimento.porcao?.g ?? ''}"></label>
+      </div>
+      <div class="botoes">
+        <button value="cancelar" class="secundario" formnovalidate>Cancelar</button>
+        <button value="guardar" class="primario">Guardar</button>
+      </div>
+    </form>`;
+
+  document.body.appendChild(dialogo);
+  dialogo.showModal();
+  dialogo.addEventListener('close', () => {
+    if (dialogo.returnValue === 'guardar') {
+      const f = new FormData(dialogo.querySelector('form'));
+      const factorTexto = String(f.get('factorCru') || '').replace(',', '.').trim();
+      const factorCru = factorTexto ? Number(factorTexto) : null;
+      const porcaoNome = String(f.get('porcaoNome') || '').trim();
+      const porcaoG = Number(f.get('porcaoG')) || 0;
+      actualizarAlimento(id, {
+        nome: String(f.get('nome')).trim(),
+        kcal: Number(f.get('kcal')) || 0,
+        p: Number(f.get('p')) || 0,
+        h: Number(f.get('h')) || 0,
+        g: Number(f.get('g')) || 0,
+        cat: f.get('cat'),
+        liquido: f.get('liquido') === 'on',
+        factorCru: Number.isFinite(factorCru) && factorCru > 0 ? factorCru : null,
+        porcao: porcaoNome && porcaoG ? { nome: porcaoNome, g: porcaoG } : null,
+      });
+      aoGuardar?.();
+    }
+    dialogo.remove();
+  });
 }
 
 export function abrirDefinicoes(aoFechar) {
@@ -53,8 +127,8 @@ export function abrirDefinicoes(aoFechar) {
       <h3>${primeira ? 'Bem-vinda' : 'Definições'}</h3>
       <p class="sub">
         ${primeira
-          ? 'Antes de começares, os teus alvos. Ficam guardados só neste telemóvel.'
-          : 'Tudo o que é teu fica guardado só neste dispositivo.'}
+      ? 'Antes de começares, os teus alvos. Ficam guardados só neste telemóvel.'
+      : 'Tudo o que é teu fica guardado só neste dispositivo.'}
       </p>
 
       <details class="sec-def" ${primeira ? 'open' : ''}>
@@ -157,8 +231,10 @@ export function abrirDefinicoes(aoFechar) {
       ${primeira ? '' : `<p class="legenda versao-app">Versão ${VERSAO_APP}</p>`}
 
       <div class="botoes">
-        ${primeira ? '' : '<button value="cancelar" class="secundario" formnovalidate>Cancelar</button>'}
-        <button value="guardar" class="primario" ${primeira ? 'style="grid-column:1/-1"' : ''}>Guardar</button>
+        ${primeira
+      ? '<button value="adiar" class="secundario" formnovalidate>Agora não</button>'
+      : '<button value="cancelar" class="secundario" formnovalidate>Cancelar</button>'}
+        <button value="guardar" class="primario">Guardar</button>
       </div>
     </form>`;
 
@@ -193,6 +269,17 @@ export function abrirDefinicoes(aoFechar) {
     });
   }
   ligarApagar();
+
+  function ligarEdicao() {
+    alvo?.querySelectorAll('[data-editar-alimento]').forEach((b) => {
+      b.onclick = () => abrirEdicaoAlimento(b.dataset.editarAlimento, () => {
+        alvo.innerHTML = listaAlimentos();
+        ligarApagar();
+        ligarEdicao();
+      });
+    });
+  }
+  ligarEdicao();
 
   dialogo.querySelector('#c-calcular').addEventListener('click', () => {
     const peso = num('#c-peso'), altura = num('#c-altura'), idade = num('#c-idade');
@@ -238,6 +325,8 @@ export function abrirDefinicoes(aoFechar) {
         defice: num('#c-defice'),
       });
       aoFechar?.();
+    } else if (dialogo.returnValue === 'adiar') {
+      adiarConfiguracaoInicial();
     }
     dialogo.remove();
   });

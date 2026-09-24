@@ -17,7 +17,7 @@ const VISTAS = {
 
 const raiz = document.querySelector('#vista');
 const titulo = document.querySelector('#titulo');
-let actual = localStorage.getItem('diario.vista') || 'treinos';
+let actual = localStorage.getItem('diario.vista') || 'comida';
 
 function mostrar(nome) {
   actual = nome;
@@ -66,10 +66,10 @@ document.querySelector('#importar').addEventListener('change', (ev) => {
 mostrar(actual);
 
 // Primeira utilização: pede os alvos antes de mais nada.
-if (!obter().alvos.configurado) {
+if (!obter().alvos.configurado && !obter().alvos.configuracaoAdiada) {
   abrirDefinicoes(() => mostrar(actual));
 }
 
 if ('serviceWorker' in navigator) {
-  window.addEventListener('load', () => navigator.serviceWorker.register('./sw.js').catch(() => {}));
+  window.addEventListener('load', () => navigator.serviceWorker.register('./sw.js').catch(() => { }));
 }

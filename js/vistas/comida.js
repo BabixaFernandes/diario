@@ -4,10 +4,12 @@ import {
 import {
   obter, isoData, somaDias, dataLegivel, totaisDoDia, alimentoPorId,
   adicionarAoDiario, removerDoDiario, actualizarNoDiario, adicionarAlimento,
-  copiarDia, usoDosAlimentos, mediaSemanalComida,
+  copiarDia, copiarRefeicao, usoDosAlimentos, mediaSemanalComida,
   ajustarAgua, definirAgua, mediaSemanalAgua,
   materializarEmenta, confirmarPlaneada, descartarPlaneada, reporDia,
+  refletirDiarioNaEmenta,
   suplementosDoDia, alternarSuplemento, adicionarSuplementoExtra, apagarSuplementoExtra,
+  editarSuplemento,
 } from '../store.js';
 import { todasAsSessoes } from './treinos.js';
 import { cartaoEmenta, cartaoCompras, ligarEmenta } from './ementa.js';
@@ -51,12 +53,14 @@ let abrir = null;
  *  querer, e sem volta atrás isso custa o registo de uma refeição. */
 let desfazer = null;
 
-/** Guarda o estado antes de tirar algo. `o que` é o que a faixa vai dizer. */
-function guardarParaDesfazer(data, oQue) {
+/** Guarda o estado antes de uma alteração que possa ser desfeita. */
+function guardarParaDesfazer(data, oQue, opcoes = {}) {
   const e = obter();
   desfazer = {
     data,
     oQue,
+    mensagem: opcoes.mensagem || `${oQue} — tirado`,
+    slot: opcoes.slot || null,
     linhas: (e.diario[data] || []).map((l) => ({ ...l })),
     materializados: [...(e.materializados[data] || [])],
   };
@@ -91,8 +95,8 @@ export function renderComida(raiz, manter = null) {
         <span class="legenda">de ${alvos.kcal} kcal</span>
         <div class="restante ${totais.kcal > alvos.kcal ? 'excedido' : ''}">
           ${totais.kcal > alvos.kcal
-            ? `${Math.round(totais.kcal - alvos.kcal)} kcal acima`
-            : `faltam ${Math.round(alvos.kcal - totais.kcal)} kcal`}
+      ? `${Math.round(totais.kcal - alvos.kcal)} kcal acima`
+      : `faltam ${Math.round(alvos.kcal - totais.kcal)} kcal`}
         </div>
       </div>
       ${barra('Proteína', totais.p, alvos.proteina, 'g', 'proteina')}
@@ -106,23 +110,27 @@ export function renderComida(raiz, manter = null) {
 
     ${cartaoAgua(estado, alvos)}
 
+    ${cartaoSuplementos()}
+
     <div class="acoes-comida">
       <button id="add-comida" class="primario">+ Alimento</button>
       <button id="copiar-dia" class="secundario">Copiar um dia</button>
     </div>
-
-    ${cartaoSuplementos()}
 
     <div class="refeicoes">
       ${REFEICOES.map((r) => blocoRefeicao(r, linhas)).join('')}
     </div>
     ${desfazer && desfazer.data === dataActiva ? `
       <div class="faixa-desfazer">
-        <span>${esc(desfazer.oQue)} — tirado</span>
+        <span>${esc(desfazer.mensagem)}</span>
         <button type="button" id="desfazer">Desfazer</button>
       </div>` : ''}
 
-    ${linhas.length ? '' : '<div class="cartao vazio"><p>Nada registado neste dia.</p><p class="legenda">Se comeste parecido a outro dia, <strong>copiar um dia</strong> é mais rápido do que voltar a escrever tudo.</p></div>'}
+    ${linhas.length ? '' : `
+      <div class="cartao vazio">
+        <p>Nada registado neste dia.</p>
+        <p class="legenda">Começa por registar uma refeição ou traz uma de outro dia.</p>
+      </div>`}
 
     ${cartaoSemana(semana, semanaAgua, alvos)}
     ${cartaoEmenta()}
@@ -135,6 +143,9 @@ export function renderComida(raiz, manter = null) {
   raiz.querySelector('#dia-seguinte').onclick = () => irParaDia(1);
   raiz.querySelector('#add-comida').onclick = () => abrirAdicionar(raiz);
   raiz.querySelector('#copiar-dia').onclick = () => abrirCopiarDia(raiz);
+  raiz.querySelectorAll('[data-copiar-refeicao]').forEach((b) => {
+    b.onclick = () => abrirCopiarRefeicao(raiz, b.dataset.copiarRefeicao);
+  });
   raiz.querySelector('#agua-exacta').onclick = () => abrirAgua(raiz);
 
   raiz.querySelectorAll('[data-agua]').forEach((b) => {
@@ -153,6 +164,7 @@ export function renderComida(raiz, manter = null) {
       const l = (obter().diario[dataActiva] || []).find((x) => x.id === b.dataset.removerLinha);
       guardarParaDesfazer(dataActiva, alimentoPorId(l?.alimentoId)?.nome || 'Alimento');
       removerDoDiario(dataActiva, b.dataset.removerLinha);
+      refletirDiarioNaEmenta(dataActiva, l?.refeicao);
       renderComida(raiz);
     };
   });
@@ -160,6 +172,7 @@ export function renderComida(raiz, manter = null) {
     const d = desfazer;
     desfazer = null;
     reporDia(d.data, d.linhas, d.materializados);
+    if (d.slot) refletirDiarioNaEmenta(d.data, d.slot);
     renderComida(raiz);
   });
   raiz.querySelectorAll('[data-confirmar]').forEach((b) => {
@@ -178,6 +191,9 @@ export function renderComida(raiz, manter = null) {
   raiz.querySelector('#add-suplemento')?.addEventListener('click', () => abrirNovoSuplemento(raiz));
   raiz.querySelectorAll('[data-apagar-suplemento]').forEach((b) => {
     b.onclick = () => { apagarSuplementoExtra(b.dataset.apagarSuplemento); renderComida(raiz); };
+  });
+  raiz.querySelectorAll('[data-editar-suplemento]').forEach((b) => {
+    b.onclick = () => abrirEditarSuplemento(raiz, b.dataset.editarSuplemento);
   });
 
   ligarEmenta(raiz, dataActiva, (manter = null) => renderComida(raiz, manter));
@@ -210,12 +226,25 @@ function blocoRefeicao(nome, linhas) {
   // ser corrigida ou confirmada — assim o plano pode entrar no diário sozinho
   // sem que se confunda o que está previsto com o que foi comido.
   const doPlano = itens.every((l) => l.planeado);
+  const temPlano = itens.some((l) => l.planeado);
+  const estadoRefeicao = doPlano
+    ? { texto: 'Planeada', classe: 'planeada' }
+    : temPlano
+      ? { texto: 'Parcial', classe: 'parcial' }
+      : { texto: 'Registada', classe: 'registada' };
 
   return `
     <div class="cartao refeicao ${doPlano ? 'do-plano' : ''}">
       <div class="refeicao-topo">
-        <h4>${nome}</h4>
-        <span class="legenda">${Math.round(kcal)} kcal</span>
+        <div class="titulo-refeicao">
+          <h4>${nome}</h4>
+          <span class="estado-refeicao ${estadoRefeicao.classe}">${estadoRefeicao.texto}</span>
+        </div>
+        <div class="acoes-refeicao">
+          <span class="legenda">${Math.round(kcal)} kcal</span>
+          <button type="button" class="mover" data-copiar-refeicao="${esc(nome)}"
+            aria-label="Copiar refeição" title="Copiar refeição">⧉</button>
+        </div>
       </div>
 
       ${doPlano ? `
@@ -223,20 +252,20 @@ function blocoRefeicao(nome, linhas) {
              ficava alinhada com a primeira linha e lia-se como sendo daquele
              alimento, quando é da refeição toda. -->
         <div class="faixa-plano">
-          <span>Toda esta refeição veio da <strong>ementa</strong></span>
+          <span>Planeada na <strong>ementa</strong> — ainda não confirmada</span>
           <div class="actos-plano">
             <button type="button" class="acto ok" data-confirmar="${nome}">✓ Comi isto</button>
             <button type="button" class="acto nao" data-descartar="${nome}">× Não comi</button>
           </div>
         </div>` : ''}
       ${itens.map((l) => {
-        const a = alimentoPorId(l.alimentoId);
-        if (!a) return '';
-        const f = l.gramas / 100;
-        // Duas acções na mesma linha, e por isso dois botões lado a lado em vez
-        // de um botão dentro do outro, que é HTML inválido: abrir para corrigir,
-        // e o × para tirar um alimento posto por engano sem abrir nada.
-        return `
+    const a = alimentoPorId(l.alimentoId);
+    if (!a) return '';
+    const f = l.gramas / 100;
+    // Duas acções na mesma linha, e por isso dois botões lado a lado em vez
+    // de um botão dentro do outro, que é HTML inválido: abrir para corrigir,
+    // e o × para tirar um alimento posto por engano sem abrir nada.
+    return `
           <div class="linha-diario">
             <button type="button" class="abre-linha" data-editar-linha="${l.id}">
               <div>
@@ -248,7 +277,7 @@ function blocoRefeicao(nome, linhas) {
             <button type="button" class="apagar tira-linha" data-remover-linha="${l.id}"
               aria-label="Tirar ${esc(a.nome)}">×</button>
           </div>`;
-      }).join('')}
+  }).join('')}
     </div>`;
 }
 
@@ -290,11 +319,11 @@ function cartaoAgua(estado, alvos) {
       </div>
       <p class="legenda">
         ${alvo.comEsforco
-          ? `Dia com treino: mais ${litros(alvo.extra)} do que num dia parado.`
-          : 'Dia sem treino, alvo base.'}
+      ? `Dia com treino: mais ${litros(alvo.extra)} do que num dia parado.`
+      : 'Dia sem treino, alvo base.'}
         ${registado && bebido < alvo.total * 0.5
-          ? ' Estás a menos de metade — o cansaço a meio do dia costuma ser isto antes de ser falta de comida.'
-          : ''}
+      ? ' Estás a menos de metade — o cansaço a meio do dia costuma ser isto antes de ser falta de comida.'
+      : ''}
       </p>
     </div>`;
 }
@@ -360,12 +389,12 @@ function cartaoSemana(s, sa, alvos) {
       </div>
       <p class="legenda">
         ${poucos
-          ? 'Com menos de quatro dias registados, esta média diz pouco.'
-          : 'É a média semanal que decide se ajustas as calorias, não o total de um dia.'}
+      ? 'Com menos de quatro dias registados, esta média diz pouco.'
+      : 'É a média semanal que decide se ajustas as calorias, não o total de um dia.'}
         ${s.diasPlano
-          ? `<strong>${s.diasPlano} ${s.diasPlano === 1 ? 'dia vem' : 'dias vêm'} da ementa sem confirmação</strong> —
+      ? `<strong>${s.diasPlano} ${s.diasPlano === 1 ? 'dia vem' : 'dias vêm'} da ementa sem confirmação</strong> —
              se comeste outra coisa, corrige aí antes de olhares para este número.`
-          : ''}
+      : ''}
       </p>
     </div>`;
 }
@@ -389,8 +418,7 @@ function linhaAgua(sa, alvos) {
 
 // ---- Suplementos ----
 
-/** Três checks fixos — creatina, colagénio, vitamina C — e um sítio para
- *  acrescentar mais, sem os obrigar a existir antes de os poder marcar. */
+/** Checks para os suplementos configurados, com edição e remoção no próprio cartão. */
 function cartaoSuplementos() {
   const estado = obter();
   const tomados = estado.suplementos[dataActiva] || {};
@@ -406,13 +434,36 @@ function cartaoSuplementos() {
               <span class="caixa">${tomados[nome] ? '☑' : '☐'}</span>
               <span>${esc(nome)}</span>
             </button>
-            ${estado.suplementosExtra.includes(nome)
-              ? `<button type="button" class="apagar" data-apagar-suplemento="${esc(nome)}" aria-label="Deixar de acompanhar ${esc(nome)}">×</button>`
-              : ''}
+            <button type="button" class="mover" data-editar-suplemento="${esc(nome)}"
+              aria-label="Editar suplemento" title="Editar suplemento">✎</button>
+            <button type="button" class="apagar" data-apagar-suplemento="${esc(nome)}" aria-label="Deixar de acompanhar ${esc(nome)}">×</button>
           </div>`).join('')}
       </div>
       <button type="button" class="secundario largo" id="add-suplemento">+ Suplemento</button>
     </div>`;
+}
+
+function abrirEditarSuplemento(raiz, nome) {
+  const dialogo = document.createElement('dialog');
+  dialogo.className = 'modal';
+  dialogo.innerHTML = `
+    <form method="dialog">
+      <h3>Editar suplemento</h3>
+      <label>Nome<input name="nome" required value="${esc(nome)}" autofocus></label>
+      <div class="botoes">
+        <button value="cancelar" class="secundario" formnovalidate>Cancelar</button>
+        <button value="guardar" class="primario">Guardar</button>
+      </div>
+    </form>`;
+  document.body.appendChild(dialogo);
+  dialogo.showModal();
+  dialogo.addEventListener('close', () => {
+    if (dialogo.returnValue === 'guardar') {
+      const novoNome = new FormData(dialogo.querySelector('form')).get('nome').trim();
+      if (novoNome) { editarSuplemento(nome, novoNome); renderComida(raiz); }
+    }
+    dialogo.remove();
+  });
 }
 
 function abrirNovoSuplemento(raiz) {
@@ -497,9 +548,9 @@ function abrirAdicionar(raiz, idLinha = null) {
           <label>Refeição
             <select name="refeicao" id="refeicao">
               ${REFEICOES.map((r) => {
-                const sel = aEditar ? linha.refeicao === r : refeicaoSugerida() === r;
-                return `<option ${sel ? 'selected' : ''}>${r}</option>`;
-              }).join('')}
+    const sel = aEditar ? linha.refeicao === r : refeicaoSugerida() === r;
+    return `<option ${sel ? 'selected' : ''}>${r}</option>`;
+  }).join('')}
             </select>
           </label>
         </div>
@@ -647,13 +698,67 @@ function abrirAdicionar(raiz, idLinha = null) {
       const campos = { gramas: gramasActuais(), refeicao: dialogo.querySelector('#refeicao').value };
       if (aEditar) actualizarNoDiario(dataActiva, idLinha, campos);
       else adicionarAoDiario(dataActiva, { alimentoId: idEscolhido, ...campos });
+      refletirDiarioNaEmenta(dataActiva, campos.refeicao);
+      if (aEditar && linha.refeicao !== campos.refeicao) refletirDiarioNaEmenta(dataActiva, linha.refeicao);
       renderComida(raiz);
     }
     dialogo.remove();
   });
 }
 
-// ---- Copiar um dia ----
+// ---- Copiar ----
+
+function abrirCopiarRefeicao(raiz, slot) {
+  const origem = dataActiva;
+  const destinoInicial = somaDias(origem, 1);
+
+  const dialogo = document.createElement('dialog');
+  dialogo.className = 'modal';
+  dialogo.innerHTML = `
+    <form method="dialog">
+      <h3>Copiar ${esc(slot.toLowerCase())}</h3>
+      <p class="sub">Escolhe o dia onde queres colar esta refeição. Será acrescentada ao que já lá estiver.</p>
+      <label>Colar em
+        <input type="date" id="destino-refeicao" value="${destinoInicial}" required>
+      </label>
+      <label>O que fazer com a refeição que já lá está
+        <select id="modo-copia">
+          <option value="acrescentar">Acrescentar os alimentos</option>
+          <option value="substituir">Substituir esta refeição</option>
+        </select>
+      </label>
+      <div class="botoes">
+        <button value="cancelar" class="secundario" formnovalidate>Cancelar</button>
+        <button value="guardar" class="primario">Colar refeição</button>
+      </div>
+    </form>`;
+
+  document.body.appendChild(dialogo);
+  dialogo.showModal();
+
+  const destino = dialogo.querySelector('#destino-refeicao');
+  dialogo.querySelector('form').addEventListener('submit', (ev) => {
+    destino.setCustomValidity(destino.value === origem ? 'Escolhe um dia diferente do dia de origem.' : '');
+    if (!destino.checkValidity()) {
+      ev.preventDefault();
+      destino.reportValidity();
+    }
+  });
+  dialogo.addEventListener('close', () => {
+    if (dialogo.returnValue === 'guardar') {
+      const modo = dialogo.querySelector('#modo-copia').value;
+      guardarParaDesfazer(destino.value, null, {
+        slot,
+        mensagem: `${modo === 'substituir' ? 'Refeição substituída' : 'Refeição copiada'}: ${slot.toLowerCase()}`,
+      });
+      copiarRefeicao(origem, destino.value, slot, modo);
+      refletirDiarioNaEmenta(destino.value, slot);
+      dataActiva = destino.value;
+      renderComida(raiz);
+    }
+    dialogo.remove();
+  });
+}
 
 function abrirCopiarDia(raiz) {
   const estado = obter();
@@ -670,13 +775,13 @@ function abrirCopiarDia(raiz) {
       ${comRegisto.length ? `
         <div class="resultados">
           ${comRegisto.map((d) => {
-            const t = totaisDoDia(d);
-            return `
+    const t = totaisDoDia(d);
+    return `
               <button type="button" class="opcao" data-copiar="${d}">
                 <span><strong>${dataLegivel(d)}</strong><br><span class="legenda">${estado.diario[d].length} itens · ${Math.round(t.kcal)} kcal · ${Math.round(t.p)} g prot.</span></span>
                 <span class="seta">›</span>
               </button>`;
-          }).join('')}
+  }).join('')}
         </div>` : '<p class="legenda">Ainda não há outros dias com comida registada.</p>'}
       <div class="botoes um"><button value="cancelar" class="secundario" formnovalidate>Cancelar</button></div>
     </form>`;
@@ -720,9 +825,13 @@ function abrirNovoAlimento(raiz, nomeInicial = '', aoCriar = null) {
       <label>Categoria
         <select name="cat">
           ${['Carne e peixe', 'Ovos e lacticínios', 'Hidratos', 'Fruta e legumes', 'Gorduras e extras', 'Outros']
-            .map((c) => `<option>${c}</option>`).join('')}
+      .map((c) => `<option>${c}</option>`).join('')}
         </select>
       </label>
+      <label>Factor cru (opcional)
+        <input type="number" name="factorCru" step="0.01" min="0.01" inputmode="decimal" placeholder="ex.: 1,35">
+      </label>
+      <p class="legenda">Multiplica o peso comido para calcular quanto comprar em cru. Deixa vazio se não souberes.</p>
       <h4 class="sec">Porção (opcional)</h4>
       <div class="par">
         <label>Como se conta<input name="porcaoNome" placeholder="ex.: iogurte, fatia, lata"></label>
@@ -753,6 +862,8 @@ function abrirNovoAlimento(raiz, nomeInicial = '', aoCriar = null) {
       if (f.get('nome') && f.get('kcal') !== '') {
         const pNome = (f.get('porcaoNome') || '').trim();
         const pG = Number(f.get('porcaoG')) || 0;
+        const factorTexto = String(f.get('factorCru') || '').replace(',', '.').trim();
+        const factorCru = factorTexto ? Number(factorTexto) : null;
         adicionarAlimento({
           nome: f.get('nome').trim(),
           kcal: Number(f.get('kcal')),
@@ -760,6 +871,7 @@ function abrirNovoAlimento(raiz, nomeInicial = '', aoCriar = null) {
           h: Number(f.get('h')) || 0,
           g: Number(f.get('g')) || 0,
           cat: f.get('cat'),
+          factorCru: Number.isFinite(factorCru) && factorCru > 0 ? factorCru : null,
           ...(pNome && pG ? { porcao: { nome: pNome, g: pG } } : {}),
           // Densidade 1: os rótulos de bebidas dão os valores por 100 ml, e a
           // 1 g/ml as duas contas dão o mesmo. Quem souber a densidade a sério

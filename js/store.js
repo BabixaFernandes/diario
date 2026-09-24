@@ -10,9 +10,8 @@ const CHAVE = 'diario.v1';
 // Definições, para ela saber se o telemóvel já actualizou.
 export const VERSAO_APP = '1.0.0';
 
-// Os três suplementos que ela toma sempre. Os que forem adicionados a mais
-// vivem em `suplementosExtra`, por nome — não têm de ser configurados, só
-// escritos uma vez ao acrescentá-los.
+// Nomes usados numa instalação nova. A lista passa para o estado para poder
+// ser editada sem obrigar a alterar o código.
 export const SUPLEMENTOS_BASE = ['Creatina', 'Colagénio', 'Vitamina C'];
 
 // Função, e não constante: cada chamada devolve objectos novos, para que
@@ -37,7 +36,8 @@ function estadoInicial() {
     compras: {},    // "2026-09-28": { "base-0": true } — o que já está comprado, por semana
     materializados: {}, // "2026-09-22": ["Almoço"] — refeições da ementa já postas no diário
     suplementos: {},      // "2026-09-23": { "Creatina": true, "Magnésio": true } — tomados nesse dia
-    suplementosExtra: [], // ["Magnésio"] — suplementos que ela acrescentou, a mais dos três fixos
+    suplementosExtra: [], // compatibilidade com versões antigas
+    suplementosLista: [...SUPLEMENTOS_BASE], // nomes que aparecem no registo diário
   };
 }
 
@@ -53,7 +53,9 @@ function comCamposDeBase(alimentos) {
   return (alimentos || []).map((a) => {
     const m = /^base-(\d+)$/.exec(a.id);
     const base = m ? ALIMENTOS_BASE[Number(m[1])] : null;
-    if (!base || a.factorCru !== undefined || base.factorCru === undefined) return a;
+    if (!base) return a.factorCru === undefined ? { ...a, factorCru: null } : a;
+    if (a.factorCru !== undefined) return a;
+    if (base.factorCru === undefined) return { ...a, factorCru: null };
     return { ...a, factorCru: base.factorCru };
   });
 }
@@ -63,9 +65,13 @@ function comCamposDeBase(alimentos) {
  *  anterior tem exactamente as mesmas lacunas que um dispositivo por
  *  actualizar, e corrigi-las só num dos dois sítios deixava o outro partir-se. */
 function migrarEstado(guardado) {
+  const suplementosLista = Array.isArray(guardado.suplementosLista)
+    ? guardado.suplementosLista
+    : [...SUPLEMENTOS_BASE, ...(guardado.suplementosExtra || [])];
   return {
     ...estadoInicial(),
     ...guardado,
+    suplementosLista,
     alvos: { ...ALVOS_PADRAO, ...(guardado.alvos || {}) },
     // Os ciclos começaram por ser só a data de início, em texto.
     ciclos: (guardado.ciclos || []).map((c) => (typeof c === 'string' ? { inicio: c, fim: null } : c)),
@@ -123,7 +129,7 @@ function migrarEmenta(ementa, refeicoes) {
 }
 
 function semear(base) {
-  base.alimentos = ALIMENTOS_BASE.map((a, i) => ({ id: `base-${i}`, ...a }));
+  base.alimentos = ALIMENTOS_BASE.map((a, i) => ({ id: `base-${i}`, ...a, factorCru: a.factorCru ?? null }));
   return base;
 }
 
@@ -154,8 +160,12 @@ export function actualizar(mutador) {
 
 export function guardarAlvos(novos) {
   actualizar((e) => {
-    e.alvos = { ...e.alvos, ...novos, configurado: true };
+    e.alvos = { ...e.alvos, ...novos, configurado: true, configuracaoAdiada: false };
   });
+}
+
+export function adiarConfiguracaoInicial() {
+  actualizar((e) => { e.alvos.configuracaoAdiada = true; });
 }
 
 /** Mostrar os ritmos em velocidade de passadeira ou em pace de rua. */
@@ -355,6 +365,13 @@ export function adicionarAlimento(alimento) {
   return id;
 }
 
+export function actualizarAlimento(id, campos) {
+  actualizar((e) => {
+    const alimento = e.alimentos.find((a) => a.id === id);
+    if (alimento) Object.assign(alimento, campos);
+  });
+}
+
 export function apagarAlimento(id) {
   actualizar((e) => {
     e.alimentos = e.alimentos.filter((a) => a.id !== id);
@@ -477,6 +494,26 @@ export function actualizarNoDiario(data, id, campos) {
   });
 }
 
+/** Reflecte uma refeição registada no dia na ementa, quando esse lugar ainda
+ *  não era um plano feito à mão. Um plano existente fica intacto para poder
+ *  ser comparado com o que foi realmente comido. */
+export function refletirDiarioNaEmenta(data, slot) {
+  actualizar((e) => {
+    const itens = (e.diario[data] || [])
+      .filter((l) => l.refeicao === slot && !l.planeado)
+      .map((l) => ({ alimentoId: l.alimentoId, gramas: l.gramas }));
+    const dia = { ...(e.ementa[data] || {}) };
+    const anterior = dia[slot];
+
+    if (anterior && anterior.origem !== 'diario') return;
+    if (itens.length) dia[slot] = { nome: '', itens, origem: 'diario' };
+    else delete dia[slot];
+
+    if (Object.keys(dia).length) e.ementa[data] = dia;
+    else delete e.ementa[data];
+  });
+}
+
 /** Traz o diário de outro dia para cá. Acrescenta, não substitui. */
 export function copiarDia(de, para) {
   actualizar((e) => {
@@ -485,6 +522,23 @@ export function copiarDia(de, para) {
     e.diario[para] = [...(e.diario[para] || []), ...origem.map((l, i) => ({
       ...l, id: `d-${Date.now()}-${i}`,
     }))];
+  });
+}
+
+/** Traz uma refeição de outro dia para cá. O que veio de um plano passa a ser
+ *  uma escolha efetivamente registada no novo dia. Acrescenta, não substitui. */
+export function copiarRefeicao(de, para, slot, modo = 'acrescentar') {
+  actualizar((e) => {
+    const origem = (e.diario[de] || []).filter((l) => l.refeicao === slot);
+    if (!origem.length) return;
+    if (!e.diario[para]) e.diario[para] = [];
+    if (modo === 'substituir') {
+      e.diario[para] = e.diario[para].filter((l) => l.refeicao !== slot);
+    }
+    e.diario[para].push(...origem.map((l, i) => {
+      const { planeado, ...linha } = l;
+      return { ...linha, id: `d-${Date.now()}-${i}` };
+    }));
   });
 }
 
@@ -760,9 +814,9 @@ export function mediaSemanalAgua(data) {
 
 // ---- Suplementos ----
 
-/** Os três fixos e os que ela foi acrescentando, sem repetidos. */
+/** A lista configurável, sem nomes repetidos. */
 export function suplementosDoDia() {
-  return [...SUPLEMENTOS_BASE, ...estado.suplementosExtra];
+  return [...new Set(estado.suplementosLista || SUPLEMENTOS_BASE)];
 }
 
 export function alternarSuplemento(data, nome) {
@@ -774,21 +828,35 @@ export function alternarSuplemento(data, nome) {
   });
 }
 
-/** Um suplemento novo, a mais dos três fixos. Sem nome repetido — repetir só
- *  faria a lista crescer sem acrescentar nada de novo para marcar. */
+/** Um suplemento novo. Sem nome repetido — repetir só faria a lista crescer
+ *  sem acrescentar nada de novo para marcar. */
 export function adicionarSuplementoExtra(nome) {
   actualizar((e) => {
     if (!suplementosDoDia().some((s) => s.toLowerCase() === nome.toLowerCase())) {
-      e.suplementosExtra = [...e.suplementosExtra, nome];
+      e.suplementosLista = [...suplementosDoDia(), nome];
     }
   });
 }
 
 /** Tira da lista de escolha; o que já ficou marcado em dias passados mantém-se
- *  no histórico desse dia — apagar o suplemento não é apagar o que já foi tomado. */
+ *  no histórico desse dia. */
 export function apagarSuplementoExtra(nome) {
   actualizar((e) => {
-    e.suplementosExtra = e.suplementosExtra.filter((s) => s !== nome);
+    e.suplementosLista = suplementosDoDia().filter((s) => s !== nome);
+  });
+}
+
+/** Renomeia também as marcações antigas para não quebrar o histórico. */
+export function editarSuplemento(nome, novoNome) {
+  actualizar((e) => {
+    const lista = suplementosDoDia();
+    if (lista.some((s) => s !== nome && s.toLowerCase() === novoNome.toLowerCase())) return;
+    e.suplementosLista = lista.map((s) => (s === nome ? novoNome : s));
+    Object.values(e.suplementos).forEach((dia) => {
+      if (dia[nome] === undefined) return;
+      dia[novoNome] = dia[nome];
+      delete dia[nome];
+    });
   });
 }
 
@@ -836,6 +904,13 @@ export function dataLegivel(iso) {
   const dias = ['domingo', 'segunda', 'terça', 'quarta', 'quinta', 'sexta', 'sábado'];
   const meses = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez'];
   return `${dias[d.getDay()]}, ${d.getDate()} ${meses[d.getMonth()]}`;
+}
+
+/** Mostra minutos guardados como minutos e segundos, sem perder a precisão interna. */
+export function formatarTempo(minutos) {
+  if (minutos === null || minutos === undefined || Number.isNaN(Number(minutos))) return '';
+  const totalSegundos = Math.max(0, Math.round(Number(minutos) * 60));
+  return `${Math.floor(totalSegundos / 60)}:${String(totalSegundos % 60).padStart(2, '0')}`;
 }
 
 export function diaCurto(iso) {
