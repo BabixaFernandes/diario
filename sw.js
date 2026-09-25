@@ -1,6 +1,6 @@
 // Service worker: guarda os ficheiros da app para funcionar sem internet.
 // Sobe a versão sempre que mudares ficheiros, para forçar actualização.
-const VERSAO = 'diario-v1';
+const VERSAO = 'diario-v2';
 
 const FICHEIROS = [
   './',
@@ -10,6 +10,7 @@ const FICHEIROS = [
   './icone.svg',
   './icone-maskable.svg',
   './js/app.js',
+  './js/tema.js',
   './js/store.js',
   './js/ciclo.js',
   './js/data/plano.js',
@@ -46,7 +47,7 @@ self.addEventListener('fetch', (ev) => {
     fetch(ev.request)
       .then((resposta) => {
         const copia = resposta.clone();
-        caches.open(VERSAO).then((c) => c.put(ev.request, copia)).catch(() => {});
+        caches.open(VERSAO).then((c) => c.put(ev.request, copia)).catch(() => { });
         return resposta;
       })
       .catch(() => caches.match(ev.request).then((r) => r || caches.match('./index.html')))

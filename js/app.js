@@ -6,6 +6,9 @@ import { renderCalendario } from './vistas/calendario.js';
 import { abrirDefinicoes } from './vistas/definicoes.js';
 import { abrirCompras } from './vistas/ementa.js';
 import { exportar, importar, obter } from './store.js';
+import { iniciarTema } from './tema.js';
+
+iniciarTema();
 
 const VISTAS = {
   treinos: { titulo: 'Treinos', render: renderTreinos },

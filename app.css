@@ -14,6 +14,29 @@
   --ouro: #ffd24a;
   --cinza: #5a6172;
   --raio: 14px;
+  --fundo-cabecalho: rgba(15, 17, 21, .92);
+  --fundo-tabs: rgba(24, 27, 34, .96);
+  color-scheme: dark;
+}
+
+:root[data-tema="claro"] {
+  --fundo: #f4f6f8;
+  --superficie: #ffffff;
+  --superficie-2: #e9edf2;
+  --borda: #d2d8e0;
+  --texto: #18202b;
+  --texto-fraco: #657181;
+  --primaria: #1769d1;
+  --verde: #168a5a;
+  --laranja: #bd6900;
+  --vermelho: #c4332b;
+  --roxo: #7352c5;
+  --azul: #1769d1;
+  --ouro: #a66b00;
+  --cinza: #7b8490;
+  --fundo-cabecalho: rgba(244, 246, 248, .92);
+  --fundo-tabs: rgba(255, 255, 255, .96);
+  color-scheme: light;
 }
 
 * {
@@ -39,7 +62,7 @@ header {
   align-items: center;
   justify-content: space-between;
   padding: max(12px, env(safe-area-inset-top)) 16px 12px;
-  background: rgba(15, 17, 21, .92);
+  background: var(--fundo-cabecalho);
   -webkit-backdrop-filter: blur(12px);
   backdrop-filter: blur(12px);
   border-bottom: 1px solid var(--borda);
@@ -93,7 +116,7 @@ main {
   z-index: 20;
   display: grid;
   grid-template-columns: repeat(5, 1fr);
-  background: rgba(24, 27, 34, .96);
+  background: var(--fundo-tabs);
   -webkit-backdrop-filter: blur(12px);
   backdrop-filter: blur(12px);
   border-top: 1px solid var(--borda);

@@ -4,6 +4,7 @@ import {
 } from '../store.js';
 import { comUnidade } from '../data/alimentos.js';
 import { PLANO } from '../data/plano.js';
+import { aplicarTema, obterTema } from '../tema.js';
 
 const esc = (t) => String(t ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 
@@ -25,7 +26,9 @@ const DEFICES = [
 /** A lista dos alimentos dela. Vive aqui, e não no separador Comida: é consulta
  *  e arrumação, não uma coisa que se use todos os dias. */
 function listaAlimentos() {
-  return obter().alimentos.map((a) => `
+  return [...obter().alimentos]
+    .sort((a, b) => a.nome.localeCompare(b.nome, 'pt-PT', { sensitivity: 'base' }))
+    .map((a) => `
     <div class="linha-alimento">
       <div>
         <strong>${esc(a.nome)}</strong><br>
@@ -228,6 +231,16 @@ export function abrirDefinicoes(aoFechar) {
           <div class="lista-alimentos" id="lista-alimentos">${listaAlimentos()}</div>
         </details>`}
 
+      <details class="sec-def">
+        <summary>Aparência</summary>
+        <label>Tema
+          <select id="tema-app">
+            <option value="escuro" ${obterTema() === 'escuro' ? 'selected' : ''}>Escuro</option>
+            <option value="claro" ${obterTema() === 'claro' ? 'selected' : ''}>Claro</option>
+          </select>
+        </label>
+      </details>
+
       ${primeira ? '' : `<p class="legenda versao-app">Versão ${VERSAO_APP}</p>`}
 
       <div class="botoes">
@@ -240,6 +253,10 @@ export function abrirDefinicoes(aoFechar) {
 
   document.body.appendChild(dialogo);
   dialogo.showModal();
+
+  dialogo.querySelector('#tema-app').addEventListener('change', (ev) => {
+    aplicarTema(ev.target.value);
+  });
 
   const num = (id) => Number(dialogo.querySelector(id).value);
 

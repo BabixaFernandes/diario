@@ -17,6 +17,8 @@ import { cartaoEmenta, cartaoCompras, ligarEmenta } from './ementa.js';
 let dataActiva = isoData();
 
 const esc = (t) => String(t ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+const normalizarPesquisa = (t) => String(t ?? '').toLocaleLowerCase('pt-PT')
+  .normalize('NFD').replace(/[\u0300-\u036f]/g, '');
 const n1 = (v) => v.toFixed(1).replace('.', ',');
 
 /** O plural da porção. O `+s` ingénuo daria "colher de sopas" e "requeijãos",
@@ -509,7 +511,12 @@ function abrirAdicionar(raiz, idLinha = null) {
   const cats = [...new Set(estado.alimentos.map((a) => a.cat || 'Outros'))];
   const grupos = [
     ...(recentes.length && !aEditar ? [{ nome: 'Mais usados', itens: recentes }] : []),
-    ...cats.map((c) => ({ nome: c, itens: estado.alimentos.filter((a) => (a.cat || 'Outros') === c) })),
+    ...cats.map((c) => ({
+      nome: c,
+      itens: estado.alimentos
+        .filter((a) => (a.cat || 'Outros') === c)
+        .sort((a, b) => a.nome.localeCompare(b.nome, 'pt-PT', { sensitivity: 'base' })),
+    })),
   ];
 
   const dialogo = document.createElement('dialog');
@@ -524,7 +531,7 @@ function abrirAdicionar(raiz, idLinha = null) {
             <div class="grupo" data-cat="${esc(g.nome)}">
               <h5>${esc(g.nome)}</h5>
               ${g.itens.map((a) => `
-                <button type="button" class="opcao" data-id="${a.id}" data-nome="${esc(a.nome.toLowerCase())}">
+                <button type="button" class="opcao" data-id="${a.id}" data-nome="${esc(normalizarPesquisa(a.nome))}">
                   <span>${esc(a.nome)}</span><span class="legenda">${a.kcal} kcal · ${a.p} g P</span>
                 </button>`).join('')}
             </div>`).join('')}
@@ -568,7 +575,9 @@ function abrirAdicionar(raiz, idLinha = null) {
     </form>`;
 
   document.body.appendChild(dialogo);
+  dialogo.tabIndex = -1;
   dialogo.showModal();
+  dialogo.focus({ preventScroll: true });
 
   let idEscolhido = aEditar ? linha.alimentoId : null;
 
@@ -644,7 +653,7 @@ function abrirAdicionar(raiz, idLinha = null) {
   const semResultados = dialogo.querySelector('#sem-resultados');
 
   dialogo.querySelector('#pesquisa')?.addEventListener('input', (ev) => {
-    const q = ev.target.value.toLowerCase().trim();
+    const q = normalizarPesquisa(ev.target.value).trim();
     dialogo.querySelectorAll('.opcao').forEach((o) => { o.hidden = q && !o.dataset.nome.includes(q); });
     dialogo.querySelectorAll('.grupo').forEach((g) => {
       g.hidden = ![...g.querySelectorAll('.opcao')].some((o) => !o.hidden);

@@ -8,7 +8,7 @@ const CHAVE = 'diario.v1';
 
 // Sobe sempre que houver uma alteração visível ao que a app faz — aparece nas
 // Definições, para ela saber se o telemóvel já actualizou.
-export const VERSAO_APP = '1.0.0';
+export const VERSAO_APP = '1.1.0';
 
 // Nomes usados numa instalação nova. A lista passa para o estado para poder
 // ser editada sem obrigar a alterar o código.
